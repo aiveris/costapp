@@ -9,6 +9,7 @@ export type ExpenseCategory =
   | 'pramogos'
   | 'sveikata'
   | 'grožis'
+  | 'vaikas'
   | 'kitos';
 
 export interface Transaction {
@@ -72,4 +73,25 @@ export interface Category {
   icon?: string;
   color?: string;
   type: 'expense' | 'income';
+}
+
+export type SavingsTransactionType = 'deposit' | 'withdrawal';
+
+export interface SavingsAccount {
+  id: string;
+  name: string;
+  description?: string;
+  currentAmount: number;
+  targetAmount?: number;
+  createdAt: Date;
+  color?: string;
+}
+
+export interface SavingsTransaction {
+  id: string;
+  savingsAccountId: string;
+  type: SavingsTransactionType;
+  amount: number;
+  date: Date;
+  description?: string;
 }

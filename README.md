@@ -59,27 +59,50 @@ Užtikrinkite, kad Firestore turi šias taisykles (development režime):
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Transakcijos
     match /transactions/{document=**} {
       allow read, write: if true;
     }
+    
+    // Biudžetai
     match /budgets/{document=**} {
       allow read, write: if true;
     }
+    
+    // Periodinės transakcijos
     match /recurring/{document=**} {
       allow read, write: if true;
     }
+    
+    // Finansų tikslai
     match /goals/{document=**} {
       allow read, write: if true;
     }
+    
+    // Skolos (jei naudojate)
     match /debts/{document=**} {
       allow read, write: if true;
     }
+    
+    // Kategorijos
     match /categories/{document=**} {
+      allow read, write: if true;
+    }
+    
+    // Santaupų sąskaitos
+    match /savingsAccounts/{document=**} {
+      allow read, write: if true;
+    }
+    
+    // Santaupų transakcijos
+    match /savingsTransactions/{document=**} {
       allow read, write: if true;
     }
   }
 }
 ```
+
+**Dėmesio:** Produkcinėje aplinkoje naudokite tinkamas saugumo taisykles su autentifikacija! Detalės žr. `FIRESTORE_RULES.md`
 
 **Dėmesio:** Produkcinėje aplinkoje naudokite tinkamas saugumo taisykles su autentifikacija!
 

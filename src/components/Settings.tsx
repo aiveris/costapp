@@ -1,18 +1,21 @@
-import { useState, useRef } from 'react';
+import { useRef } from 'react';
 import { Theme } from '../types';
 import { useTheme } from '../hooks/useTheme';
 import { exportTransactionsToCSV } from '../utils/exportCSV';
+import { importTransactionsFromCSV } from '../utils/importCSV';
 import { exportAllData, importAllData, AppData } from '../utils/importExport';
-import { Transaction, Budget, RecurringTransaction, FinancialGoal, Debt } from '../types';
-import { addTransaction, addBudget, addRecurringTransaction, addGoal, addDebt } from '../services/firestoreService';
+import { Transaction, Budget, RecurringTransaction, FinancialGoal, SavingsAccount, SavingsTransaction } from '../types';
+import { addTransaction, addBudget, addRecurringTransaction, addGoal, addSavingsAccount, addSavingsTransaction } from '../services/firestoreService';
 
 interface SettingsProps {
   transactions: Transaction[];
   budgets: Budget[];
   recurringTransactions: RecurringTransaction[];
   goals: FinancialGoal[];
-  debts: Debt[];
+  savingsAccounts?: SavingsAccount[];
+  savingsTransactions?: SavingsTransaction[];
   onDataImported: () => void;
+  userId: string;
 }
 
 export default function Settings({
@@ -20,18 +23,63 @@ export default function Settings({
   budgets,
   recurringTransactions,
   goals,
-  debts,
+  savingsAccounts = [],
+  savingsTransactions = [],
   onDataImported,
+  userId,
 }: SettingsProps) {
   const [theme, setTheme] = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExportCSV = () => {
     exportTransactionsToCSV(transactions);
   };
 
   const handleExportAll = async () => {
-    await exportAllData(transactions, budgets, recurringTransactions, goals, debts);
+    await exportAllData(transactions, budgets, recurringTransactions, goals, savingsAccounts, savingsTransactions);
+  };
+
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const transactions = await importTransactionsFromCSV(file);
+      
+      // Importuoti transakcijas į Firestore
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const transaction of transactions) {
+        try {
+          await addTransaction({
+            type: transaction.type,
+            amount: transaction.amount,
+            date: transaction.date,
+            description: transaction.description,
+            category: transaction.category,
+          }, userId);
+          successCount++;
+        } catch (error) {
+          console.error('Klaida importuojant transakciją:', error);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        alert(`Sėkmingai importuota ${successCount} transakcijų${errorCount > 0 ? `. ${errorCount} transakcijų nepavyko importuoti.` : ''}`);
+        onDataImported();
+      } else {
+        alert('Nepavyko importuoti jokių transakcijų.');
+      }
+    } catch (error: any) {
+      alert(`Klaida importuojant CSV: ${error.message}`);
+    } finally {
+      if (csvFileInputRef.current) {
+        csvFileInputRef.current.value = '';
+      }
+    }
   };
 
   const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,7 +98,7 @@ export default function Settings({
             date: new Date(transaction.date),
             description: transaction.description,
             category: transaction.category,
-          });
+          }, userId);
         } catch (error) {
           console.error('Klaida importuojant transakciją:', error);
         }
@@ -59,7 +107,7 @@ export default function Settings({
       // Import budgets
       for (const budget of data.budgets || []) {
         try {
-          await addBudget(budget);
+          await addBudget(budget, userId);
         } catch (error) {
           console.error('Klaida importuojant biudžetą:', error);
         }
@@ -77,7 +125,7 @@ export default function Settings({
             startDate: new Date(recurring.startDate),
             endDate: recurring.endDate ? new Date(recurring.endDate) : undefined,
             currency: 'EUR',
-          });
+          }, userId);
         } catch (error) {
           console.error('Klaida importuojant periodinę transakciją:', error);
         }
@@ -93,26 +141,39 @@ export default function Settings({
             targetDate: new Date(goal.targetDate),
             description: goal.description,
             currency: 'EUR',
-          });
+          }, userId);
         } catch (error) {
           console.error('Klaida importuojant tikslą:', error);
         }
       }
 
-      // Import debts
-      for (const debt of data.debts || []) {
+      // Import savings accounts
+      for (const account of data.savingsAccounts || []) {
         try {
-          await addDebt({
-            type: debt.type,
-            person: debt.person,
-            amount: debt.amount,
-            description: debt.description,
-            date: new Date(debt.date),
-            paidDate: debt.paidDate ? new Date(debt.paidDate) : undefined,
-            currency: 'EUR',
-          });
+          await addSavingsAccount({
+            name: account.name,
+            description: account.description,
+            currentAmount: account.currentAmount,
+            createdAt: new Date(account.createdAt),
+            color: account.color,
+          }, userId);
         } catch (error) {
-          console.error('Klaida importuojant skolą:', error);
+          console.error('Klaida importuojant santaupų sąskaitą:', error);
+        }
+      }
+
+      // Import savings transactions
+      for (const transaction of data.savingsTransactions || []) {
+        try {
+          await addSavingsTransaction({
+            savingsAccountId: transaction.savingsAccountId,
+            type: transaction.type,
+            amount: transaction.amount,
+            date: new Date(transaction.date),
+            description: transaction.description,
+          }, userId);
+        } catch (error) {
+          console.error('Klaida importuojant santaupų transakciją:', error);
         }
       }
 
@@ -129,11 +190,11 @@ export default function Settings({
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-      <h2 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">Nustatymai</h2>
+      <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Nustatymai</h2>
       
       <div className="space-y-6">
         <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-700 dark:text-gray-300">Tema</h3>
+          <h3 className="text-lg sm:text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Tema</h3>
           <div className="flex gap-4">
             <label className="flex items-center">
               <input
@@ -159,35 +220,55 @@ export default function Settings({
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-700 dark:text-gray-300">Duomenų valdymas</h3>
+          <h3 className="text-lg sm:text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Duomenų valdymas</h3>
           <div className="space-y-3">
-            <button
-              onClick={handleExportCSV}
-              className="w-full md:w-auto bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 mr-2"
-            >
-              Eksportuoti CSV
-            </button>
-            <button
-              onClick={handleExportAll}
-              className="w-full md:w-auto bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 mr-2"
-            >
-              Eksportuoti visus duomenis (JSON)
-            </button>
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                onChange={handleImportFile}
-                className="hidden"
-                id="import-file"
-              />
-              <label
-                htmlFor="import-file"
-                className="inline-block bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 cursor-pointer"
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleExportCSV}
+                className="w-full md:w-auto bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 min-h-[44px] touch-manipulation"
               >
-                Importuoti duomenis (JSON)
-              </label>
+                Eksportuoti CSV
+              </button>
+              <button
+                onClick={handleExportAll}
+                className="w-full md:w-auto bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation"
+              >
+                Eksportuoti visus duomenis (JSON)
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div>
+                <input
+                  ref={csvFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleImportCSV}
+                  className="hidden"
+                  id="import-csv-file"
+                />
+                <label
+                  htmlFor="import-csv-file"
+                  className="inline-block bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 cursor-pointer min-h-[44px] touch-manipulation flex items-center justify-center"
+                >
+                  Importuoti CSV
+                </label>
+              </div>
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleImportFile}
+                  className="hidden"
+                  id="import-file"
+                />
+                <label
+                  htmlFor="import-file"
+                  className="inline-block bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 cursor-pointer min-h-[44px] touch-manipulation flex items-center justify-center"
+                >
+                  Importuoti duomenis (JSON)
+                </label>
+              </div>
             </div>
           </div>
         </div>

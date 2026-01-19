@@ -1,22 +1,25 @@
 import { useState, useEffect } from 'react';
 import { RecurringTransaction, TransactionType, ExpenseCategory } from '../types';
-import { addRecurringTransaction, getRecurringTransactions, deleteRecurringTransaction } from '../services/firestoreService';
+import { addRecurringTransaction, getRecurringTransactions, deleteRecurringTransaction, updateRecurringTransaction } from '../services/firestoreService';
 import { addTransaction } from '../services/firestoreService';
-import { addDays, addWeeks, addMonths, addYears, isBefore, format } from 'date-fns';
+import { addDays, addWeeks, addMonths, addYears, isBefore, isSameDay, format } from 'date-fns';
 
 interface RecurringTransactionsProps {
   onTransactionAdded: () => void;
+  userId: string;
 }
 
 const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   'būstas', 'mokesčiai', 'maistas', 'drabužiai', 'automobilis',
-  'pramogos', 'sveikata', 'grožis', 'kitos'
+  'pramogos', 'sveikata', 'grožis', 'vaikas', 'kitos'
 ];
 
-export default function RecurringTransactions({ onTransactionAdded }: RecurringTransactionsProps) {
+export default function RecurringTransactions({ onTransactionAdded, userId }: RecurringTransactionsProps) {
   const [recurring, setRecurring] = useState<RecurringTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
@@ -26,12 +29,38 @@ export default function RecurringTransactions({ onTransactionAdded }: RecurringT
   const [endDate, setEndDate] = useState('');
 
   useEffect(() => {
+    if (!openMenuId) return;
+
+    const handleOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-recurring-menu]')) return;
+      setOpenMenuId(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenMenuId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openMenuId]);
+
+  useEffect(() => {
     loadRecurring();
   }, []);
 
   const loadRecurring = async () => {
     try {
-      const data = await getRecurringTransactions();
+      const data = await getRecurringTransactions(userId);
       setRecurring(data);
       // Automatiškai sukurti transakcijas, jei reikia
       await processRecurringTransactions(data);
@@ -44,51 +73,191 @@ export default function RecurringTransactions({ onTransactionAdded }: RecurringT
 
   const processRecurringTransactions = async (list: RecurringTransaction[]) => {
     const now = new Date();
+    now.setHours(23, 59, 59, 999); // Nustatyti iki dienos pabaigos
+    
+    console.log('=== ProcessRecurringTransactions pradžia ===');
+    console.log('Dabar:', now.toISOString());
+    console.log('Periodinių transakcijų skaičius:', list.length);
+    
     for (const item of list) {
-      if (item.endDate && isBefore(now, item.endDate)) continue;
-      
-      let nextDate = new Date(item.startDate);
-      const lastTransaction = new Date(localStorage.getItem(`recurring_${item.id}_last`) || 0);
-      
-      while (isBefore(nextDate, now)) {
-        switch (item.frequency) {
-          case 'daily':
-            nextDate = addDays(nextDate, 1);
-            break;
-          case 'weekly':
-            nextDate = addWeeks(nextDate, 1);
-            break;
-          case 'monthly':
-            nextDate = addMonths(nextDate, 1);
-            break;
-          case 'yearly':
-            nextDate = addYears(nextDate, 1);
-            break;
+      try {
+        console.log(`\nApdorojama periodinė transakcija: ${item.description} (${item.type})`);
+        console.log('Item data:', {
+          id: item.id,
+          type: item.type,
+          amount: item.amount,
+          description: item.description,
+          category: item.category,
+          frequency: item.frequency,
+          startDate: item.startDate.toISOString(),
+          endDate: item.endDate?.toISOString()
+        });
+        
+        // Praleisti, jei endDate yra praėjęs
+        if (item.endDate) {
+          const endDate = new Date(item.endDate);
+          endDate.setHours(23, 59, 59, 999);
+          if (isBefore(endDate, now)) {
+            console.log('Praleista: endDate praėjęs');
+            continue;
+          }
         }
         
-        if (nextDate > lastTransaction && isBefore(nextDate, now)) {
+        // Praleisti, jei startDate yra ateityje
+        const startDate = new Date(item.startDate);
+        startDate.setHours(0, 0, 0, 0);
+        const nowStart = new Date();
+        nowStart.setHours(0, 0, 0, 0);
+        
+        if (isBefore(nowStart, startDate)) {
+          console.log('Praleista: startDate ateityje');
+          continue;
+        }
+        
+        console.log('Transakcija tinkama apdorojimui');
+        
+        const lastTransactionStr = localStorage.getItem(`recurring_${item.id}_last`);
+        console.log('Paskutinė sukurtos transakcijos data (localStorage):', lastTransactionStr || 'Nėra');
+        
+        // Nustatyti pradinę datą
+        let nextDate = new Date(startDate);
+        nextDate.setHours(0, 0, 0, 0);
+        
+        // Jei jau buvo sukurtos transakcijos, pradėti nuo paskutinės sukurtos + periodas
+        if (lastTransactionStr) {
+          const lastDate = new Date(lastTransactionStr);
+          lastDate.setHours(0, 0, 0, 0);
+          console.log('Paskutinė sukurtos transakcijos data:', lastDate.toISOString());
+          
+          // Apskaičiuoti kitą datą nuo paskutinės sukurtos
+          switch (item.frequency) {
+            case 'daily':
+              nextDate = addDays(lastDate, 1);
+              break;
+            case 'weekly':
+              nextDate = addWeeks(lastDate, 1);
+              break;
+            case 'monthly':
+              nextDate = addMonths(lastDate, 1);
+              break;
+            case 'yearly':
+              nextDate = addYears(lastDate, 1);
+              break;
+          }
+          nextDate.setHours(0, 0, 0, 0);
+          console.log('Kita data nuo paskutinės:', nextDate.toISOString());
+        } else {
+          console.log('Pirmas kartas - naudojama startDate:', nextDate.toISOString());
+        }
+        
+        // Sukurti visas trūkstamas transakcijas
+        let maxIterations = 100; // Apsauga nuo begalinio ciklo
+        let transactionsCreated = 0;
+        
+        const nowForComparison = new Date();
+        nowForComparison.setHours(0, 0, 0, 0);
+        
+        console.log('Ciklo pradžia. nextDate:', nextDate.toISOString(), 'now:', nowForComparison.toISOString());
+        console.log('Sąlyga:', isBefore(nextDate, nowForComparison) || isSameDay(nextDate, nowForComparison));
+        
+        while ((isBefore(nextDate, nowForComparison) || isSameDay(nextDate, nowForComparison)) && maxIterations > 0) {
+          maxIterations--;
+          transactionsCreated++;
+          
+          console.log(`\nIteracija ${transactionsCreated}. nextDate: ${nextDate.toISOString()}`);
+          
+          // Patikrinti, ar neviršytas endDate
+          if (item.endDate) {
+            const endDate = new Date(item.endDate);
+            endDate.setHours(23, 59, 59, 999);
+            if (isBefore(endDate, nextDate)) {
+              console.log('Praleista: viršytas endDate');
+              break;
+            }
+          }
+          
           try {
-            await addTransaction({
+            const transactionData: any = {
               type: item.type,
               amount: item.amount,
               description: item.description,
-              date: nextDate,
-              category: item.category,
-            });
+              date: new Date(nextDate),
+            };
+            
+            // Pridėti kategoriją tik jei ji yra (išlaidos)
+            if (item.category) {
+              transactionData.category = item.category;
+            }
+            
+            console.log('Bandoma sukurti transakciją:', transactionData);
+            
+            const transactionId = await addTransaction(transactionData, userId);
+            console.log('✅ Transakcija sėkmingai sukurta! ID:', transactionId);
+            
             localStorage.setItem(`recurring_${item.id}_last`, nextDate.toISOString());
             onTransactionAdded();
-          } catch (error) {
-            console.error('Klaida kuriant periodinę transakciją:', error);
+          } catch (error: any) {
+            console.error('❌ Klaida kuriant periodinę transakciją:', error);
+            console.error('Klaidos tipas:', error?.constructor?.name);
+            console.error('Klaidos pranešimas:', error?.message);
+            console.error('Klaidos stack:', error?.stack);
+            console.error('Transakcijos duomenys:', { 
+              type: item.type, 
+              amount: item.amount, 
+              description: item.description, 
+              category: item.category,
+              date: nextDate.toISOString()
+            });
+            // Nepertraukti ciklo, bet tęsti su kitomis transakcijomis
           }
+          
+          // Perkelti į kitą periodą
+          switch (item.frequency) {
+            case 'daily':
+              nextDate = addDays(nextDate, 1);
+              break;
+            case 'weekly':
+              nextDate = addWeeks(nextDate, 1);
+              break;
+            case 'monthly':
+              nextDate = addMonths(nextDate, 1);
+              break;
+            case 'yearly':
+              nextDate = addYears(nextDate, 1);
+              break;
+          }
+          nextDate.setHours(0, 0, 0, 0);
         }
+        
+        console.log(`Sukurta transakcijų: ${transactionsCreated}`);
+        
+        if (maxIterations === 0) {
+          console.warn(`⚠️ Pasiektas maksimalus iteracijų skaičius periodinei transakcijai: ${item.description}`);
+        }
+      } catch (error: any) {
+        console.error('❌ Klaida apdorojant periodinę transakciją:', error);
+        console.error('Periodinės transakcijos duomenys:', item);
       }
     }
+    
+    console.log('=== ProcessRecurringTransactions pabaiga ===\n');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('=== Pridedama periodinė transakcija ===');
+    console.log('Formos duomenys:', {
+      type,
+      amount: parseFloat(amount),
+      description,
+      category: type === 'expense' ? category : undefined,
+      frequency,
+      startDate,
+      endDate: endDate || undefined,
+    });
+    
     try {
-      await addRecurringTransaction({
+      const recurringData = {
         type,
         amount: parseFloat(amount),
         description,
@@ -97,16 +266,53 @@ export default function RecurringTransactions({ onTransactionAdded }: RecurringT
         startDate: new Date(startDate),
         endDate: endDate ? new Date(endDate) : undefined,
         currency: 'EUR',
-      });
-      setShowForm(false);
-      setAmount('');
-      setDescription('');
-      setStartDate(new Date().toISOString().split('T')[0]);
-      setEndDate('');
-      loadRecurring();
-    } catch (error) {
-      alert('Nepavyko pridėti periodinės transakcijos');
+      };
+      
+      console.log('Siunčiami duomenys į Firestore:', recurringData);
+      
+      if (editingRecurring) {
+        await updateRecurringTransaction(editingRecurring.id, recurringData);
+        console.log('✅ Periodinė transakcija atnaujinta! ID:', editingRecurring.id);
+      } else {
+        const id = await addRecurringTransaction(recurringData, userId);
+        console.log('✅ Periodinė transakcija pridėta! ID:', id);
+      }
+      
+      resetForm();
+      
+      console.log('Kviečiama loadRecurring()...');
+      await loadRecurring();
+      console.log('loadRecurring() baigta');
+    } catch (error: any) {
+      console.error('❌ Klaida pridedant periodinę transakciją:', error);
+      console.error('Klaidos detalės:', error.message, error.stack);
+      alert(`Nepavyko pridėti periodinės transakcijos: ${error.message}`);
     }
+  };
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditingRecurring(null);
+    setType('expense');
+    setAmount('');
+    setDescription('');
+    setCategory('kitos');
+    setFrequency('monthly');
+    setStartDate(new Date().toISOString().split('T')[0]);
+    setEndDate('');
+  };
+
+  const handleEdit = (item: RecurringTransaction) => {
+    setEditingRecurring(item);
+    setType(item.type);
+    setAmount(item.amount.toString());
+    setDescription(item.description);
+    setCategory(item.category || 'kitos');
+    setFrequency(item.frequency);
+    setStartDate(format(item.startDate, 'yyyy-MM-dd'));
+    setEndDate(item.endDate ? format(item.endDate, 'yyyy-MM-dd') : '');
+    setShowForm(true);
+    setOpenMenuId(null);
   };
 
   const handleDelete = async (id: string) => {
@@ -115,6 +321,7 @@ export default function RecurringTransactions({ onTransactionAdded }: RecurringT
         await deleteRecurringTransaction(id);
         localStorage.removeItem(`recurring_${id}_last`);
         loadRecurring();
+        setOpenMenuId(null);
       } catch (error) {
         alert('Nepavyko ištrinti');
       }
@@ -126,14 +333,17 @@ export default function RecurringTransactions({ onTransactionAdded }: RecurringT
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Periodinės transakcijos</h2>
-        <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
-          {showForm ? 'Atšaukti' : '+ Pridėti'}
+        <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Periodinės transakcijos</h2>
+        <button onClick={() => (showForm ? resetForm() : setShowForm(true))} className="bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation">
+          {showForm ? 'Atšaukti' : '+'}
         </button>
       </div>
 
       {showForm && (
         <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-4">
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {editingRecurring ? 'Redaguoti periodinę transakciją' : 'Pridėti periodinę transakciją'}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tipas</label>
@@ -177,29 +387,117 @@ export default function RecurringTransactions({ onTransactionAdded }: RecurringT
             </div>
           </div>
           <button type="submit" className="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
-            Pridėti
+            {editingRecurring ? 'Atnaujinti' : 'Pridėti'}
           </button>
         </form>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-1.5 sm:space-y-2">
         {recurring.map(item => (
-          <div key={item.id} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg flex justify-between items-center">
-            <div>
-              <h3 className="font-semibold text-gray-800 dark:text-white">{item.description}</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {item.amount.toFixed(2)} € - {
-                  item.frequency === 'daily' ? 'Kasdien' :
-                  item.frequency === 'weekly' ? 'Kas savaitę' :
-                  item.frequency === 'monthly' ? 'Kas mėnesį' : 'Kasmet'
-                }
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-500">
-                Nuo {format(item.startDate, 'yyyy-MM-dd')}
-                {item.endDate && ` iki ${format(item.endDate, 'yyyy-MM-dd')}`}
-              </p>
+          <div
+            key={item.id}
+            className={`p-1.5 sm:p-2 md:p-3 rounded-lg border-l-4 ${
+              item.type === 'income'
+                ? 'bg-green-50 dark:bg-green-900 border-green-500 dark:border-green-400'
+                : 'bg-red-50 dark:bg-red-900 border-red-500 dark:border-red-400'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span
+                  className={`font-semibold text-sm sm:text-base md:text-lg whitespace-nowrap ${
+                    item.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                  }`}
+                >
+                  {item.type === 'income' ? '+' : '-'}
+                  {Math.round(item.amount)} €
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap hidden sm:inline">
+                  {format(item.startDate, 'yyyy-MM-dd')}
+                </span>
+                {item.category && (
+                  <span className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded capitalize whitespace-nowrap hidden sm:inline">
+                    {item.category}
+                  </span>
+                )}
+                <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 truncate">
+                  {item.description}
+                  {item.endDate && (
+                    <span className="hidden sm:inline">{` · iki ${format(item.endDate, 'yyyy-MM-dd')}`}</span>
+                  )}
+                </span>
+                <span className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded whitespace-nowrap">
+                  {
+                    item.frequency === 'daily' ? 'Kasdien' :
+                    item.frequency === 'weekly' ? 'Kas savaitę' :
+                    item.frequency === 'monthly' ? 'Kas mėnesį' : 'Kasmet'
+                  }
+                </span>
+              </div>
+              <div className="flex gap-1 sm:gap-2 flex-shrink-0">
+                <div className="relative md:hidden" data-recurring-menu>
+                  <button
+                    onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}
+                    className="text-gray-600 dark:text-gray-300 transition-colors p-1.5 min-w-[36px] min-h-[36px] flex items-center justify-center touch-manipulation active:scale-95"
+                    title="Veiksmai"
+                    aria-haspopup="menu"
+                    aria-expanded={openMenuId === item.id}
+                  >
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <circle cx="6" cy="12" r="2" />
+                      <circle cx="12" cy="12" r="2" />
+                      <circle cx="18" cy="12" r="2" />
+                    </svg>
+                  </button>
+                  {openMenuId === item.id && (
+                    <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-10">
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className="w-full px-3 py-2 text-left text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        Redaguoti
+                      </button>
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        Ištrinti
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="hidden md:flex gap-1 sm:gap-2">
+                  <button
+                    onClick={() => handleEdit(item)}
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors p-1.5 sm:p-2 min-w-[36px] sm:min-w-[44px] min-h-[36px] sm:min-h-[44px] flex items-center justify-center touch-manipulation active:scale-95"
+                    title="Redaguoti"
+                  >
+                    <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 transition-colors p-1.5 sm:p-2 min-w-[36px] sm:min-w-[44px] min-h-[36px] sm:min-h-[44px] flex items-center justify-center touch-manipulation active:scale-95"
+                    title="Ištrinti"
+                  >
+                    <svg
+                      className="w-5 h-5 sm:w-6 sm:h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
-            <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800">Ištrinti</button>
           </div>
         ))}
         {recurring.length === 0 && (

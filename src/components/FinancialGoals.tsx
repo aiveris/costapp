@@ -5,9 +5,10 @@ import { format } from 'date-fns';
 
 interface FinancialGoalsProps {
   transactions: Transaction[];
+  userId: string;
 }
 
-export default function FinancialGoals({ transactions }: FinancialGoalsProps) {
+export default function FinancialGoals({ transactions: _transactions, userId }: FinancialGoalsProps) {
   const [goals, setGoals] = useState<FinancialGoal[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -24,7 +25,7 @@ export default function FinancialGoals({ transactions }: FinancialGoalsProps) {
 
   const loadGoals = async () => {
     try {
-      const data = await getGoals();
+      const data = await getGoals(userId);
       setGoals(data);
     } catch (error) {
       console.error('Klaida kraunant tikslus:', error);
@@ -53,7 +54,7 @@ export default function FinancialGoals({ transactions }: FinancialGoalsProps) {
           targetDate: new Date(targetDate),
           description,
           currency: 'EUR',
-        });
+        }, userId);
       }
       setShowForm(false);
       setEditing(null);
@@ -95,7 +96,7 @@ export default function FinancialGoals({ transactions }: FinancialGoalsProps) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Finansų tikslai</h2>
+        <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Finansų tikslai</h2>
         <button
           onClick={() => {
             setShowForm(!showForm);
@@ -106,9 +107,9 @@ export default function FinancialGoals({ transactions }: FinancialGoalsProps) {
             setTargetDate('');
             setDescription('');
           }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+          className="bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation"
         >
-          {showForm ? 'Atšaukti' : '+ Pridėti tikslą'}
+          {showForm ? 'Atšaukti' : '+'}
         </button>
       </div>
 
@@ -152,7 +153,7 @@ export default function FinancialGoals({ transactions }: FinancialGoalsProps) {
             <div key={goal.id} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex justify-between items-center mb-2">
                 <div>
-                  <h3 className="font-semibold text-gray-800 dark:text-white">{goal.title}</h3>
+                  <h3 className="text-lg sm:text-xl font-semibold text-gray-700 dark:text-gray-300">{goal.title}</h3>
                   {goal.description && <p className="text-sm text-gray-600 dark:text-gray-400">{goal.description}</p>}
                 </div>
                 <div className="flex gap-2">
@@ -163,10 +164,10 @@ export default function FinancialGoals({ transactions }: FinancialGoalsProps) {
               <div className="mb-2">
                 <div className="flex justify-between text-sm mb-1">
                   <span className="text-gray-600 dark:text-gray-400">
-                    {goal.currentAmount.toFixed(2)} / {goal.targetAmount.toFixed(2)} €
+                    {Math.round(goal.currentAmount)} / {Math.round(goal.targetAmount)} €
                   </span>
                   <span className="text-gray-600 dark:text-gray-400">
-                    {remaining > 0 ? `Liko: ${remaining.toFixed(2)} €` : 'Pasiektas!'}
+                    {remaining > 0 ? `Liko: ${Math.round(remaining)} €` : 'Pasiektas!'}
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">

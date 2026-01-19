@@ -1,16 +1,21 @@
 import { useMemo } from 'react';
 import { Transaction } from '../types';
 import { startOfMonth, endOfMonth } from 'date-fns';
+import MonthSelector from './MonthSelector';
 
 interface BalanceProps {
   transactions: Transaction[];
+  selectedMonth?: Date;
+  onMonthChange?: (month: Date) => void;
 }
 
-export default function Balance({ transactions }: BalanceProps) {
+export default function Balance({ transactions, selectedMonth, onMonthChange }: BalanceProps) {
+  const currentMonth = selectedMonth || startOfMonth(new Date());
+  const handleMonthChange = onMonthChange || (() => {});
+
   const monthlyBalance = useMemo(() => {
-    const now = new Date();
-    const monthStart = startOfMonth(now);
-    const monthEnd = endOfMonth(now);
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
 
     const monthlyTransactions = transactions.filter(
       (t) => t.date >= monthStart && t.date <= monthEnd
@@ -29,32 +34,40 @@ export default function Balance({ transactions }: BalanceProps) {
       expenses,
       balance: income - expenses,
     };
-  }, [transactions]);
+  }, [transactions, currentMonth]);
 
   return (
-    <div className="bg-gradient-to-r from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 rounded-lg shadow-lg p-6 text-white mb-6">
-      <h2 className="text-2xl font-bold mb-4">Mėnesio likutis</h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white/20 rounded-lg p-4 backdrop-blur-sm">
-          <p className="text-sm opacity-90 mb-1">Pajamos</p>
-          <p className="text-3xl font-bold text-green-200">
-            {monthlyBalance.income.toFixed(2)} €
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md px-4 pb-4 pt-1 sm:p-6 border border-gray-200 dark:border-gray-700 mb-4 sm:mb-6">
+      <div className="sm:flex sm:flex-row justify-between items-start sm:items-center mb-2 gap-3">
+        <div className="hidden md:block bg-white dark:bg-gray-700 rounded-lg px-3 py-2 w-full sm:w-auto">
+          <MonthSelector selectedMonth={currentMonth} onMonthChange={handleMonthChange} />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="bg-green-50 dark:bg-green-900 rounded-lg px-2 py-1.5 sm:px-4 sm:py-3 border border-green-200 dark:border-green-700 md:flex md:flex-col md:justify-center">
+          <p className="text-xs text-gray-600 dark:text-gray-300 mb-0.5">Pajamos</p>
+          <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400">
+            {Math.round(monthlyBalance.income)} €
           </p>
         </div>
-        <div className="bg-white/20 rounded-lg p-4 backdrop-blur-sm">
-          <p className="text-sm opacity-90 mb-1">Išlaidos</p>
-          <p className="text-3xl font-bold text-red-200">
-            {monthlyBalance.expenses.toFixed(2)} €
+        <div className="bg-red-50 dark:bg-red-900 rounded-lg px-2 py-1.5 sm:px-4 sm:py-3 border border-red-200 dark:border-red-700 md:flex md:flex-col md:justify-center">
+          <p className="text-xs text-gray-600 dark:text-gray-300 mb-0.5">Išlaidos</p>
+          <p className="text-lg sm:text-2xl font-bold text-red-600 dark:text-red-400">
+            {Math.round(monthlyBalance.expenses)} €
           </p>
         </div>
-        <div className="bg-white/20 rounded-lg p-4 backdrop-blur-sm">
-          <p className="text-sm opacity-90 mb-1">Likutis</p>
+        <div className={`rounded-lg px-2 py-1.5 sm:px-4 sm:py-3 border md:flex md:flex-col md:justify-center ${
+          monthlyBalance.balance >= 0 
+            ? 'bg-green-50 dark:bg-green-900 border-green-200 dark:border-green-700' 
+            : 'bg-red-50 dark:bg-red-900 border-red-200 dark:border-red-700'
+        }`}>
+          <p className="text-xs text-gray-600 dark:text-gray-300 mb-0.5">Likutis</p>
           <p
-            className={`text-3xl font-bold ${
-              monthlyBalance.balance >= 0 ? 'text-green-200' : 'text-red-200'
+            className={`text-lg sm:text-2xl font-bold ${
+              monthlyBalance.balance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
             }`}
           >
-            {monthlyBalance.balance.toFixed(2)} €
+            {Math.round(monthlyBalance.balance)} €
           </p>
         </div>
       </div>

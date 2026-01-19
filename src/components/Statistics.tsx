@@ -1,37 +1,67 @@
-import { useState, useMemo } from 'react';
-import { Transaction, PeriodFilter } from '../types';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subWeeks, subMonths, subYears } from 'date-fns';
+import { useState, useMemo, useEffect } from 'react';
+import { Transaction } from '../types';
+import { startOfMonth, endOfMonth } from 'date-fns';
 
 interface StatisticsProps {
   transactions: Transaction[];
+  selectedMonth?: Date; // Senasis būdas (Transakcijų tabe)
+  selectedYear?: number;
+  statisticsMonth?: number | 'all'; // Mėnesio numeris (0-11) arba 'all' (Statistikos tabe)
+  showSummary?: boolean; // Ar rodyti Pajamos/Išlaidos/Likutis langelius
 }
 
-export default function Statistics({ transactions }: StatisticsProps) {
-  const [period, setPeriod] = useState<PeriodFilter>('month');
+export default function Statistics({ transactions, selectedMonth: propSelectedMonth, selectedYear: propSelectedYear, statisticsMonth: propStatisticsMonth, showSummary = true }: StatisticsProps) {
+  const [selectedYear, setSelectedYear] = useState<number>(propSelectedYear || new Date().getFullYear());
+  
+  // Atnaujinti selectedYear, jei prop pasikeitė
+  useEffect(() => {
+    if (propSelectedYear !== undefined) {
+      setSelectedYear(propSelectedYear);
+    }
+  }, [propSelectedYear]);
 
   const filteredData = useMemo(() => {
-    const now = new Date();
-    let start: Date;
-    let end: Date;
-
-    switch (period) {
-      case 'week':
-        start = startOfWeek(now, { weekStartsOn: 1 });
-        end = endOfWeek(now, { weekStartsOn: 1 });
-        break;
-      case 'month':
-        start = startOfMonth(now);
-        end = endOfMonth(now);
-        break;
-      case 'year':
-        start = startOfYear(now);
-        end = endOfYear(now);
-        break;
+    let filtered: Transaction[];
+    
+    // Jei perduodamas selectedMonth (Date), filtruoti pagal mėnesį (senasis būdas)
+    if (propSelectedMonth) {
+      const monthStart = startOfMonth(propSelectedMonth);
+      const monthEnd = endOfMonth(propSelectedMonth);
+      monthStart.setHours(0, 0, 0, 0);
+      monthEnd.setHours(23, 59, 59, 999);
+      
+      filtered = transactions.filter((t) => {
+        const tDate = new Date(t.date);
+        tDate.setHours(0, 0, 0, 0);
+        return tDate >= monthStart && tDate <= monthEnd;
+      });
+    } else {
+      // Naudoti metų režimą
+      const yearToUse = selectedYear || new Date().getFullYear();
+      
+      // Jei pasirinktas konkretus mėnuo (ne 'all'), filtruoti pagal metus ir mėnesį
+      if (propStatisticsMonth !== undefined && propStatisticsMonth !== 'all') {
+        const monthStart = startOfMonth(new Date(yearToUse, propStatisticsMonth, 1));
+        const monthEnd = endOfMonth(new Date(yearToUse, propStatisticsMonth, 1));
+        monthStart.setHours(0, 0, 0, 0);
+        monthEnd.setHours(23, 59, 59, 999);
+        
+        filtered = transactions.filter((t) => {
+          const tDate = new Date(t.date);
+          tDate.setHours(0, 0, 0, 0);
+          return tDate >= monthStart && tDate <= monthEnd;
+        });
+      } else {
+        // Jei propStatisticsMonth === 'all', rodyti visus metus (visų metų duomenys)
+        filtered = transactions.filter(
+          (t) => {
+            const tDate = new Date(t.date);
+            const year = tDate.getFullYear();
+            return year === yearToUse;
+          }
+        );
+      }
     }
-
-    const filtered = transactions.filter(
-      (t) => t.date >= start && t.date <= end
-    );
 
     const income = filtered
       .filter((t) => t.type === 'income')
@@ -57,65 +87,46 @@ export default function Statistics({ transactions }: StatisticsProps) {
       categoryStats,
       transactionCount: filtered.length,
     };
-  }, [transactions, period]);
-
-  const periodLabels = {
-    week: 'Savaitė',
-    month: 'Mėnuo',
-    year: 'Metai',
-  };
+  }, [transactions, selectedYear, propSelectedMonth, propStatisticsMonth]);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Statistika</h2>
-        <div className="flex gap-2">
-          {(['week', 'month', 'year'] as PeriodFilter[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-4 py-2 rounded-md transition-colors ${
-                period === p
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              {periodLabels[p]}
-            </button>
-          ))}
-        </div>
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6">
+      <div className="mb-4">
+        <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Statistika</h2>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-green-50 dark:bg-green-900 rounded-lg p-4 border border-green-200 dark:border-green-700">
-          <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Pajamos</p>
-          <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-            {filteredData.income.toFixed(2)} €
-          </p>
-        </div>
-        <div className="bg-red-50 dark:bg-red-900 rounded-lg p-4 border border-red-200 dark:border-red-700">
-          <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Išlaidos</p>
-          <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-            {filteredData.expenses.toFixed(2)} €
-          </p>
-        </div>
-        <div className={`rounded-lg p-4 border ${
-          filteredData.balance >= 0 
-            ? 'bg-green-50 dark:bg-green-900 border-green-200 dark:border-green-700' 
-            : 'bg-red-50 dark:bg-red-900 border-red-200 dark:border-red-700'
-        }`}>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Likutis</p>
-          <p className={`text-2xl font-bold ${
-            filteredData.balance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+      {showSummary && (
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
+          <div className="bg-green-50 dark:bg-green-900 rounded-lg px-2 py-1.5 sm:px-4 sm:py-3 border border-green-200 dark:border-green-700">
+            <p className="text-xs text-gray-600 dark:text-gray-300 mb-0.5">Pajamos</p>
+            <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400">
+              {Math.round(filteredData.income)} €
+            </p>
+          </div>
+          <div className="bg-red-50 dark:bg-red-900 rounded-lg px-2 py-1.5 sm:px-4 sm:py-3 border border-red-200 dark:border-red-700">
+            <p className="text-xs text-gray-600 dark:text-gray-300 mb-0.5">Išlaidos</p>
+            <p className="text-lg sm:text-2xl font-bold text-red-600 dark:text-red-400">
+              {Math.round(filteredData.expenses)} €
+            </p>
+          </div>
+          <div className={`rounded-lg px-2 py-1.5 sm:px-4 sm:py-3 border ${
+            filteredData.balance >= 0 
+              ? 'bg-green-50 dark:bg-green-900 border-green-200 dark:border-green-700' 
+              : 'bg-red-50 dark:bg-red-900 border-red-200 dark:border-red-700'
           }`}>
-            {filteredData.balance.toFixed(2)} €
-          </p>
+            <p className="text-xs text-gray-600 dark:text-gray-300 mb-0.5">Likutis</p>
+            <p className={`text-lg sm:text-2xl font-bold ${
+              filteredData.balance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+            }`}>
+              {Math.round(filteredData.balance)} €
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {Object.keys(filteredData.categoryStats).length > 0 && (
         <div>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">
+          <h3 className="text-lg sm:text-xl font-semibold text-gray-700 dark:text-gray-300 mb-3">
             Išlaidų kategorijos
           </h3>
           <div className="space-y-2">
@@ -127,7 +138,7 @@ export default function Statistics({ transactions }: StatisticsProps) {
                     {category}
                   </span>
                   <span className="text-red-600 dark:text-red-400 font-bold">
-                    {amount.toFixed(2)} €
+                    {Math.round(amount)} €
                   </span>
                 </div>
               ))}

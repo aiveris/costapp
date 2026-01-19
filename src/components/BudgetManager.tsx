@@ -5,14 +5,15 @@ import { addBudget, getBudgets, updateBudget, deleteBudget } from '../services/f
 interface BudgetManagerProps {
   transactions: Transaction[];
   onBudgetUpdated: () => void;
+  userId: string;
 }
 
 const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   'būstas', 'mokesčiai', 'maistas', 'drabužiai', 'automobilis',
-  'pramogos', 'sveikata', 'grožis', 'kitos'
+  'pramogos', 'sveikata', 'grožis', 'vaikas', 'kitos'
 ];
 
-export default function BudgetManager({ transactions, onBudgetUpdated }: BudgetManagerProps) {
+export default function BudgetManager({ transactions, onBudgetUpdated, userId }: BudgetManagerProps) {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -27,7 +28,7 @@ export default function BudgetManager({ transactions, onBudgetUpdated }: BudgetM
 
   const loadBudgets = async () => {
     try {
-      const data = await getBudgets();
+      const data = await getBudgets(userId);
       setBudgets(data);
     } catch (error) {
       console.error('Klaida kraunant biudžetus:', error);
@@ -42,7 +43,7 @@ export default function BudgetManager({ transactions, onBudgetUpdated }: BudgetM
       if (editing) {
         await updateBudget(editing.id, { category, amount: parseFloat(amount), period, currency: 'EUR' });
       } else {
-        await addBudget({ category, amount: parseFloat(amount), period, currency: 'EUR' });
+        await addBudget({ category, amount: parseFloat(amount), period, currency: 'EUR' }, userId);
       }
       setShowForm(false);
       setEditing(null);
@@ -97,16 +98,16 @@ export default function BudgetManager({ transactions, onBudgetUpdated }: BudgetM
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Biudžeto valdymas</h2>
+        <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Biudžetas</h2>
         <button
           onClick={() => {
             setShowForm(!showForm);
             setEditing(null);
             setAmount('');
           }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+          className="bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation"
         >
-          {showForm ? 'Atšaukti' : '+ Pridėti biudžetą'}
+          {showForm ? 'Atšaukti' : '+'}
         </button>
       </div>
 
@@ -150,9 +151,9 @@ export default function BudgetManager({ transactions, onBudgetUpdated }: BudgetM
             <div key={budget.id} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex justify-between items-center mb-2">
                 <div>
-                  <h3 className="font-semibold text-gray-800 dark:text-white capitalize">{budget.category}</h3>
+                  <h3 className="text-lg sm:text-xl font-semibold text-gray-700 dark:text-gray-300 capitalize">{budget.category}</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {budget.period === 'week' ? 'Savaitė' : budget.period === 'month' ? 'Mėnuo' : 'Metai'} - {budget.amount.toFixed(2)} €
+                    {budget.period === 'week' ? 'Savaitė' : budget.period === 'month' ? 'Mėnuo' : 'Metai'} - {Math.round(budget.amount)} €
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -162,9 +163,9 @@ export default function BudgetManager({ transactions, onBudgetUpdated }: BudgetM
               </div>
               <div className="mb-2">
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600 dark:text-gray-400">Išleista: {spent.toFixed(2)} €</span>
+                  <span className="text-gray-600 dark:text-gray-400">Išleista: {Math.round(spent)} €</span>
                   <span className={remaining < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>
-                    {remaining >= 0 ? 'Liko: ' : 'Viršyta: '}{Math.abs(remaining).toFixed(2)} €
+                    {remaining >= 0 ? 'Liko: ' : 'Viršyta: '}{Math.round(Math.abs(remaining))} €
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">

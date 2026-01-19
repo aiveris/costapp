@@ -1,11 +1,12 @@
-import { Transaction, Budget, RecurringTransaction, FinancialGoal, Debt } from '../types';
+import { Transaction, Budget, RecurringTransaction, FinancialGoal, SavingsAccount, SavingsTransaction } from '../types';
 
 export interface AppData {
   transactions: Transaction[];
   budgets: Budget[];
   recurringTransactions: RecurringTransaction[];
   goals: FinancialGoal[];
-  debts: Debt[];
+  savingsAccounts?: SavingsAccount[];
+  savingsTransactions?: SavingsTransaction[];
   version: string;
   exportDate: string;
 }
@@ -15,14 +16,16 @@ export const exportAllData = async (
   budgets: Budget[],
   recurring: RecurringTransaction[],
   goals: FinancialGoal[],
-  debts: Debt[]
+  savingsAccounts?: SavingsAccount[],
+  savingsTransactions?: SavingsTransaction[]
 ): Promise<void> => {
   const data: AppData = {
     transactions,
     budgets,
     recurringTransactions: recurring,
     goals,
-    debts,
+    savingsAccounts: savingsAccounts || [],
+    savingsTransactions: savingsTransactions || [],
     version: '1.0',
     exportDate: new Date().toISOString(),
   };
@@ -57,10 +60,16 @@ export const importAllData = (file: File): Promise<AppData> => {
         data.goals.forEach(g => {
           g.targetDate = new Date(g.targetDate);
         });
-        data.debts.forEach(d => {
-          d.date = new Date(d.date);
-          if (d.paidDate) d.paidDate = new Date(d.paidDate);
-        });
+        if (data.savingsAccounts) {
+          data.savingsAccounts.forEach(sa => {
+            sa.createdAt = new Date(sa.createdAt);
+          });
+        }
+        if (data.savingsTransactions) {
+          data.savingsTransactions.forEach(st => {
+            st.date = new Date(st.date);
+          });
+        }
 
         resolve(data);
       } catch (error) {

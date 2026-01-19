@@ -54,7 +54,7 @@ export default function CalendarView({ transactions }: CalendarViewProps) {
         >
           ←
         </button>
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
+        <h2 className="text-lg sm:text-xl font-semibold text-gray-700 dark:text-gray-300">
           {format(currentDate, 'yyyy MMMM', { locale: lt })}
         </h2>
         <button
