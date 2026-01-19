@@ -23,6 +23,19 @@ export default function FinancialGoals({ transactions: _transactions, userId }: 
     loadGoals();
   }, []);
 
+  useEffect(() => {
+    if (!showForm) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        resetForm();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showForm]);
+
   const loadGoals = async () => {
     try {
       const data = await getGoals(userId);
@@ -32,6 +45,16 @@ export default function FinancialGoals({ transactions: _transactions, userId }: 
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditing(null);
+    setTitle('');
+    setTargetAmount('');
+    setCurrentAmount('');
+    setTargetDate('');
+    setDescription('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -56,13 +79,7 @@ export default function FinancialGoals({ transactions: _transactions, userId }: 
           currency: 'EUR',
         }, userId);
       }
-      setShowForm(false);
-      setEditing(null);
-      setTitle('');
-      setTargetAmount('');
-      setCurrentAmount('');
-      setTargetDate('');
-      setDescription('');
+      resetForm();
       loadGoals();
     } catch (error) {
       alert('Nepavyko išsaugoti tikslo');
@@ -94,54 +111,25 @@ export default function FinancialGoals({ transactions: _transactions, userId }: 
   if (loading) return <div className="text-center p-4">Kraunama...</div>;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Finansų tikslai</h2>
-        <button
-          onClick={() => {
-            setShowForm(!showForm);
-            setEditing(null);
-            setTitle('');
-            setTargetAmount('');
-            setCurrentAmount('');
-            setTargetDate('');
-            setDescription('');
-          }}
-          className="bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation"
-        >
-          {showForm ? 'Atšaukti' : '+'}
-        </button>
-      </div>
-
-      {showForm && (
-        <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pavadinimas</label>
-              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tikslo suma</label>
-              <input type="number" step="0.01" value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Dabartinė suma</label>
-              <input type="number" step="0.01" value={currentAmount} onChange={(e) => setCurrentAmount(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tikslo data</label>
-              <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Aprašymas</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" rows={3} />
-            </div>
-          </div>
-          <button type="submit" className="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
-            {editing ? 'Atnaujinti' : 'Pridėti'}
+    <>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Finansų tikslai</h2>
+          <button
+            onClick={() => {
+              setShowForm(true);
+              setEditing(null);
+              setTitle('');
+              setTargetAmount('');
+              setCurrentAmount('');
+              setTargetDate('');
+              setDescription('');
+            }}
+            className="bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation"
+          >
+            +
           </button>
-        </form>
-      )}
+        </div>
 
       <div className="space-y-4">
         {goals.map(goal => {
@@ -157,8 +145,8 @@ export default function FinancialGoals({ transactions: _transactions, userId }: 
                   {goal.description && <p className="text-sm text-gray-600 dark:text-gray-400">{goal.description}</p>}
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => { setEditing(goal); setTitle(goal.title); setTargetAmount(goal.targetAmount.toString()); setCurrentAmount(goal.currentAmount.toString()); setTargetDate(format(goal.targetDate, 'yyyy-MM-dd')); setDescription(goal.description || ''); setShowForm(true); }} className="text-blue-600 hover:text-blue-800">Redaguoti</button>
-                  <button onClick={() => handleDelete(goal.id)} className="text-red-600 hover:text-red-800">Ištrinti</button>
+                  <button onClick={() => { setEditing(goal); setTitle(goal.title); setTargetAmount(goal.targetAmount.toString()); setCurrentAmount(goal.currentAmount.toString()); setTargetDate(format(goal.targetDate, 'yyyy-MM-dd')); setDescription(goal.description || ''); setShowForm(true); }} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors">Redaguoti</button>
+                  <button onClick={() => handleDelete(goal.id)} className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 transition-colors">Ištrinti</button>
                 </div>
               </div>
               <div className="mb-2">
@@ -193,5 +181,73 @@ export default function FinancialGoals({ transactions: _transactions, userId }: 
         )}
       </div>
     </div>
+
+    {showForm && (
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            resetForm();
+          }
+        }}
+      >
+        <div 
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 sm:p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-700 dark:text-gray-300">
+              {editing ? 'Redaguoti tikslą' : 'Pridėti tikslą'}
+            </h2>
+            <button
+              type="button"
+              onClick={resetForm}
+              className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 focus:outline-none touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
+              aria-label="Uždaryti"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pavadinimas</label>
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tikslo suma (€)</label>
+                <input type="number" step="0.01" value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Dabartinė suma (€)</label>
+                <input type="number" step="0.01" value={currentAmount} onChange={(e) => setCurrentAmount(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tikslo data</label>
+              <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required />
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={resetForm}
+                className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-800 dark:text-white rounded-lg transition-colors font-medium min-h-[44px] touch-manipulation active:scale-95"
+              >
+                Atšaukti
+              </button>
+              <button
+                type="submit"
+                className="flex-1 px-4 py-2 bg-blue-50 dark:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 rounded-lg transition-colors font-medium min-h-[44px] touch-manipulation active:scale-95"
+              >
+                {editing ? 'Atnaujinti' : 'Pridėti'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

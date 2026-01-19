@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
+import { User, updateProfile } from 'firebase/auth';
 import { Theme } from '../types';
 import { useTheme } from '../hooks/useTheme';
 import { exportTransactionsToCSV } from '../utils/exportCSV';
@@ -16,6 +17,7 @@ interface SettingsProps {
   savingsTransactions?: SavingsTransaction[];
   onDataImported: () => void;
   userId: string;
+  user: User;
 }
 
 export default function Settings({
@@ -27,10 +29,37 @@ export default function Settings({
   savingsTransactions = [],
   onDataImported,
   userId,
+  user,
 }: SettingsProps) {
   const [theme, setTheme] = useTheme();
+  const [displayName, setDisplayName] = useState(user.displayName || '');
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvFileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDisplayName(user.displayName || '');
+  }, [user.displayName]);
+
+  const handleUpdateName = async () => {
+    if (!displayName.trim()) {
+      alert('Vardas negali būti tuščias');
+      return;
+    }
+
+    try {
+      setIsUpdatingName(true);
+      await updateProfile(user, {
+        displayName: displayName.trim(),
+      });
+      alert('Vardas sėkmingai atnaujintas!');
+    } catch (error: any) {
+      console.error('Klaida atnaujinant vardą:', error);
+      alert(`Nepavyko atnaujinti vardo: ${error.message}`);
+    } finally {
+      setIsUpdatingName(false);
+    }
+  };
 
   const handleExportCSV = () => {
     exportTransactionsToCSV(transactions);
@@ -193,6 +222,33 @@ export default function Settings({
       <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Nustatymai</h2>
       
       <div className="space-y-6">
+        <div>
+          <h3 className="text-lg sm:text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Profilis</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Vardas
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="flex-1 px-4 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Įveskite vardą"
+                />
+                <button
+                  onClick={handleUpdateName}
+                  disabled={isUpdatingName || displayName.trim() === (user.displayName || '')}
+                  className="px-4 py-2 bg-blue-50 dark:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 rounded-md transition-colors font-medium min-h-[44px] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdatingName ? 'Išsaugoma...' : 'Išsaugoti'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div>
           <h3 className="text-lg sm:text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Tema</h3>
           <div className="flex gap-4">

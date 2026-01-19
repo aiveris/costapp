@@ -219,7 +219,7 @@ export default function TransactionList({ transactions, onTransactionDeleted, on
                   {format(transaction.date, 'yyyy-MM-dd', { locale: lt })}
                 </span>
                 {transaction.category && (
-                  <span className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded capitalize whitespace-nowrap">
+                  <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded capitalize whitespace-nowrap">
                     {transaction.category}
                   </span>
                 )}
@@ -249,7 +249,6 @@ export default function TransactionList({ transactions, onTransactionDeleted, on
                           setEditingTransaction(transaction);
                           setOpenMenuId(null);
                         }}
-                        autoFocus
                         className="w-full px-3 py-2 text-left text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
                         Redaguoti

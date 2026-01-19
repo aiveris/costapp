@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { RecurringTransaction, TransactionType, ExpenseCategory } from '../types';
-import { addRecurringTransaction, getRecurringTransactions, deleteRecurringTransaction, updateRecurringTransaction } from '../services/firestoreService';
+import { useState, useEffect, useRef } from 'react';
+import { RecurringTransaction, TransactionType, ExpenseCategory, Transaction } from '../types';
+import { addRecurringTransaction, getRecurringTransactions, deleteRecurringTransaction, updateRecurringTransaction, getTransactions } from '../services/firestoreService';
 import { addTransaction } from '../services/firestoreService';
 import { addDays, addWeeks, addMonths, addYears, isBefore, isSameDay, format } from 'date-fns';
 
@@ -27,6 +27,7 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
   const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('monthly');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState('');
+  const isProcessingRef = useRef(false);
 
   useEffect(() => {
     if (!openMenuId) return;
@@ -55,6 +56,19 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
   }, [openMenuId]);
 
   useEffect(() => {
+    if (!showForm) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        resetForm();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showForm]);
+
+  useEffect(() => {
     loadRecurring();
   }, []);
 
@@ -72,14 +86,27 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
   };
 
   const processRecurringTransactions = async (list: RecurringTransaction[]) => {
-    const now = new Date();
-    now.setHours(23, 59, 59, 999); // Nustatyti iki dienos pabaigos
+    // Apsauga nuo vienu metu vykstančių kvietimų
+    if (isProcessingRef.current) {
+      console.log('⚠️ ProcessRecurringTransactions jau vyksta, praleidžiama');
+      return;
+    }
     
-    console.log('=== ProcessRecurringTransactions pradžia ===');
-    console.log('Dabar:', now.toISOString());
-    console.log('Periodinių transakcijų skaičius:', list.length);
+    isProcessingRef.current = true;
     
-    for (const item of list) {
+    try {
+      const now = new Date();
+      now.setHours(23, 59, 59, 999); // Nustatyti iki dienos pabaigos
+      
+      console.log('=== ProcessRecurringTransactions pradžia ===');
+      console.log('Dabar:', now.toISOString());
+      console.log('Periodinių transakcijų skaičius:', list.length);
+      
+      // Gauti esamas transakcijas, kad patikrintume duplikatus
+      const existingTransactions = await getTransactions(userId);
+      console.log('Esamų transakcijų skaičius:', existingTransactions.length);
+      
+      for (const item of list) {
       try {
         console.log(`\nApdorojama periodinė transakcija: ${item.description} (${item.type})`);
         console.log('Item data:', {
@@ -176,27 +203,60 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
             }
           }
           
-          try {
-            const transactionData: any = {
-              type: item.type,
-              amount: item.amount,
+          // Patikrinti, ar transakcija jau egzistuoja (duplikato patikrinimas)
+          const transactionDate = new Date(nextDate);
+          transactionDate.setHours(0, 0, 0, 0);
+          
+          const duplicate = existingTransactions.find(t => {
+            const tDate = new Date(t.date);
+            tDate.setHours(0, 0, 0, 0);
+            
+            return (
+              t.type === item.type &&
+              t.amount === item.amount &&
+              t.description === item.description &&
+              tDate.getTime() === transactionDate.getTime() &&
+              (item.category ? t.category === item.category : !t.category)
+            );
+          });
+          
+          if (duplicate) {
+            console.log('⚠️ Transakcija jau egzistuoja, praleidžiama:', {
+              date: transactionDate.toISOString(),
               description: item.description,
-              date: new Date(nextDate),
-            };
-            
-            // Pridėti kategoriją tik jei ji yra (išlaidos)
-            if (item.category) {
-              transactionData.category = item.category;
-            }
-            
-            console.log('Bandoma sukurti transakciją:', transactionData);
-            
-            const transactionId = await addTransaction(transactionData, userId);
-            console.log('✅ Transakcija sėkmingai sukurta! ID:', transactionId);
-            
+              amount: item.amount
+            });
+            // Atnaujinti localStorage, bet nekuriant transakcijos
             localStorage.setItem(`recurring_${item.id}_last`, nextDate.toISOString());
-            onTransactionAdded();
-          } catch (error: any) {
+          } else {
+            try {
+              const transactionData: any = {
+                type: item.type,
+                amount: item.amount,
+                description: item.description,
+                date: new Date(nextDate),
+              };
+              
+              // Pridėti kategoriją tik jei ji yra (išlaidos)
+              if (item.category) {
+                transactionData.category = item.category;
+              }
+              
+              console.log('Bandoma sukurti transakciją:', transactionData);
+              
+              const transactionId = await addTransaction(transactionData, userId);
+              console.log('✅ Transakcija sėkmingai sukurta! ID:', transactionId);
+              
+              // Pridėti į esamų transakcijų sąrašą, kad kitos iteracijos matytų
+              existingTransactions.push({
+                id: transactionId,
+                ...transactionData,
+                date: new Date(nextDate),
+              } as Transaction);
+              
+              localStorage.setItem(`recurring_${item.id}_last`, nextDate.toISOString());
+              onTransactionAdded();
+            } catch (error: any) {
             console.error('❌ Klaida kuriant periodinę transakciją:', error);
             console.error('Klaidos tipas:', error?.constructor?.name);
             console.error('Klaidos pranešimas:', error?.message);
@@ -209,6 +269,7 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
               date: nextDate.toISOString()
             });
             // Nepertraukti ciklo, bet tęsti su kitomis transakcijomis
+            }
           }
           
           // Perkelti į kitą periodą
@@ -241,6 +302,9 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
     }
     
     console.log('=== ProcessRecurringTransactions pabaiga ===\n');
+    } finally {
+      isProcessingRef.current = false;
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -331,66 +395,14 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
   if (loading) return <div className="text-center p-4">Kraunama...</div>;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Periodinės transakcijos</h2>
-        <button onClick={() => (showForm ? resetForm() : setShowForm(true))} className="bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation">
-          {showForm ? 'Atšaukti' : '+'}
-        </button>
-      </div>
-
-      {showForm && (
-        <form onSubmit={handleSubmit} className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-4">
-          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            {editingRecurring ? 'Redaguoti periodinę transakciją' : 'Pridėti periodinę transakciją'}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tipas</label>
-              <select value={type} onChange={(e) => setType(e.target.value as TransactionType)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required>
-                <option value="income">Pajamos</option>
-                <option value="expense">Išlaidos</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Suma</label>
-              <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Aprašymas</label>
-              <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
-            </div>
-            {type === 'expense' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Kategorija</label>
-                <select value={category} onChange={(e) => setCategory(e.target.value as ExpenseCategory)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required>
-                  {EXPENSE_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>)}
-                </select>
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Dažnis</label>
-              <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required>
-                <option value="daily">Kasdien</option>
-                <option value="weekly">Kas savaitę</option>
-                <option value="monthly">Kas mėnesį</option>
-                <option value="yearly">Kasmet</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pradžios data</label>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pabaigos data (nebūtina)</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-            </div>
-          </div>
-          <button type="submit" className="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
-            {editingRecurring ? 'Atnaujinti' : 'Pridėti'}
+    <>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg sm:text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Periodinės transakcijos</h2>
+          <button onClick={() => setShowForm(true)} className="bg-blue-50 dark:bg-blue-900 text-blue-900 dark:text-blue-100 px-4 py-2 rounded-md border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 min-h-[44px] touch-manipulation">
+            +
           </button>
-        </form>
-      )}
+        </div>
 
       <div className="space-y-1.5 sm:space-y-2">
         {recurring.map(item => (
@@ -505,5 +517,97 @@ export default function RecurringTransactions({ onTransactionAdded, userId }: Re
         )}
       </div>
     </div>
+
+    {showForm && (
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            resetForm();
+          }
+        }}
+      >
+        <div 
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 sm:p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-700 dark:text-gray-300">
+              {editingRecurring ? 'Redaguoti periodinę transakciją' : 'Pridėti periodinę transakciją'}
+            </h2>
+            <button
+              type="button"
+              onClick={resetForm}
+              className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 focus:outline-none touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
+              aria-label="Uždaryti"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tipas</label>
+                <select value={type} onChange={(e) => setType(e.target.value as TransactionType)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required>
+                  <option value="income">Pajamos</option>
+                  <option value="expense">Išlaidos</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Suma (€)</label>
+                <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Aprašymas</label>
+                <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required />
+              </div>
+              {type === 'expense' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Kategorija</label>
+                  <select value={category} onChange={(e) => setCategory(e.target.value as ExpenseCategory)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required>
+                    {EXPENSE_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>)}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Dažnis</label>
+                <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required>
+                  <option value="daily">Kasdien</option>
+                  <option value="weekly">Kas savaitę</option>
+                  <option value="monthly">Kas mėnesį</option>
+                  <option value="yearly">Kasmet</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pradžios data</label>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Pabaigos data (nebūtina)</label>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation" />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={resetForm}
+                className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-800 dark:text-white rounded-lg transition-colors font-medium min-h-[44px] touch-manipulation active:scale-95"
+              >
+                Atšaukti
+              </button>
+              <button
+                type="submit"
+                className="flex-1 px-4 py-2 bg-blue-50 dark:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 rounded-lg transition-colors font-medium min-h-[44px] touch-manipulation active:scale-95"
+              >
+                {editingRecurring ? 'Atnaujinti' : 'Pridėti'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

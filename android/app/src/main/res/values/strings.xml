@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CostAPP</string>
+    <string name="title_activity_main">CostAPP</string>
+    <string name="package_name">com.costapp.app</string>
+    <string name="custom_url_scheme">com.costapp.app</string>
+</resources>

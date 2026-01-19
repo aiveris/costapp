@@ -139,7 +139,6 @@ export default function TransactionForm({ onTransactionAdded, userId, isModal = 
             step="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            autoFocus
             className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation"
             required
           />
